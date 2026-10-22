@@ -38,13 +38,24 @@ $port = if ($cfg["APP_PORT"]) { $cfg["APP_PORT"] } else { "8000" }
 $ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" -and $_.InterfaceAlias -notmatch "vEthernet|WSL|Docker|Loopback" } |
     Select-Object -ExpandProperty IPAddress)
-$hosts = @("localhost", "127.0.0.1", "0.0.0.0") + $ips
-$origins = @("http://localhost:$port") + ($ips | ForEach-Object { "http://${_}:$port" })
+# Ручные добавки (домены туннеля и т.п. — с точкой или звёздочкой) сохраняем
+$keepHosts = @(); $keepOrigins = @()
+if ($cfg["DJANGO_ALLOWED_HOSTS"]) { $keepHosts = @($cfg["DJANGO_ALLOWED_HOSTS"].Split(",") | Where-Object { $_.StartsWith(".") }) }
+if ($cfg["DJANGO_CSRF_TRUSTED_ORIGINS"]) { $keepOrigins = @($cfg["DJANGO_CSRF_TRUSTED_ORIGINS"].Split(",") | Where-Object { $_.Contains("*") }) }
+$hosts = @("localhost", "127.0.0.1", "0.0.0.0") + $ips + $keepHosts
+$origins = @("http://localhost:$port") + ($ips | ForEach-Object { "http://${_}:$port" }) + $keepOrigins
 $out = foreach ($l in [IO.File]::ReadAllLines($envPath)) {
     if ($l -like "DJANGO_ALLOWED_HOSTS=*") { "DJANGO_ALLOWED_HOSTS=" + ($hosts -join ",") }
     elseif ($l -like "DJANGO_CSRF_TRUSTED_ORIGINS=*") { "DJANGO_CSRF_TRUSTED_ORIGINS=" + ($origins -join ",") }
     else { $l }
 }
+# Настройки, появившиеся в новых версиях, дописываем в старый .env
+$defaults = [ordered]@{
+    "PYTHON_IMAGE"   = "mirror.gcr.io/library/python:3.12-slim"
+    "POSTGRES_IMAGE" = "mirror.gcr.io/library/postgres:16-alpine"
+    "APP_PORT"       = $port
+}
+foreach ($k in $defaults.Keys) { if (-not $cfg.ContainsKey($k)) { $out = @($out) + "$k=$($defaults[$k])"; Write-Host "В .env добавлено: $k" } }
 [IO.File]::WriteAllLines($envPath, [string[]]$out, $ascii)
 
 # 3. Сборка и запуск. --wait ждёт, пока база и таблицы будут готовы

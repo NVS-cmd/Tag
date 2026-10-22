@@ -30,3 +30,38 @@ def service_worker(_request):
 
 def manifest(_request):
     return _file("manifest.webmanifest", "application/manifest+json")
+
+
+# ---------- первичная настройка облачной базы (Vercel + Supabase) ----------
+import hmac  # noqa: E402
+import io  # noqa: E402
+import os  # noqa: E402
+
+from django.core.management import call_command  # noqa: E402
+from django.db import connection, transaction  # noqa: E402
+from django.http import HttpResponse  # noqa: E402
+
+
+@transaction.non_atomic_requests
+def cloud_setup(request):
+    """Создать таблицы и залить демо-данные в облачной базе — открыть один раз в браузере.
+
+    /setup/?token=<SETUP_TOKEN>. Работает, только пока в настройках Vercel задан SETUP_TOKEN;
+    после настройки переменную нужно удалить — тогда адрес отвечает 404.
+    """
+    secret = os.environ.get("SETUP_TOKEN", "")
+    given = request.GET.get("token", "")
+    if len(secret) < 16 or not hmac.compare_digest(secret.encode(), given.encode()):
+        raise Http404
+    out = io.StringIO()
+    with connection.cursor() as cur:
+        cur.execute("CREATE EXTENSION IF NOT EXISTS btree_gist")
+    out.write("Расширение btree_gist: OK\n")
+    call_command("migrate", interactive=False, stdout=out, verbosity=1)
+    from .models import Point
+    if Point.objects.exists():
+        out.write("\nДемо-данные уже есть — не трогаю.\n")
+    else:
+        call_command("seed_demo", stdout=out)
+    out.write("\nГотово. Удалите SETUP_TOKEN в настройках Vercel и сделайте Redeploy.\n")
+    return HttpResponse(out.getvalue(), content_type="text/plain; charset=utf-8")

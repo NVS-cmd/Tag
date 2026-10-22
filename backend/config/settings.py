@@ -1,6 +1,7 @@
 """Настройки Django. Все секреты и адреса — только из переменных окружения (.env)."""
 import os
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -44,6 +45,16 @@ MIDDLEWARE = [
     "core.middleware.DeviceGuardMiddleware",
 ]
 
+# Статика (оформление, приложение) отдаётся самим Django через WhiteNoise — нужно для Vercel.
+# Если библиотеки нет (старый локальный контейнер без пересборки), просто работаем без неё.
+try:
+    import whitenoise  # noqa: F401
+
+    MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
+    WHITENOISE_USE_FINDERS = True  # без collectstatic: файлы берутся прямо из папок приложений
+except ImportError:
+    pass
+
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 
@@ -62,18 +73,38 @@ TEMPLATES = [
     },
 ]
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": env("POSTGRES_DB", "crm"),
-        "USER": env("POSTGRES_USER", "crm"),
-        "PASSWORD": env("POSTGRES_PASSWORD", required=True),
-        "HOST": env("POSTGRES_HOST", "db"),
-        "PORT": env("POSTGRES_PORT", "5432"),
-        "CONN_MAX_AGE": 60,
-        "ATOMIC_REQUESTS": True,
+DATABASE_URL = env("DATABASE_URL")
+if DATABASE_URL:
+    # Облачная база (Supabase и т.п.) одной строкой. Для serverless (Vercel) — через пулер
+    # в режиме транзакций: без постоянных соединений, server-side курсоров и prepared statements.
+    _u = urlparse(DATABASE_URL)
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": (_u.path or "/postgres").lstrip("/") or "postgres",
+            "USER": unquote(_u.username or ""),
+            "PASSWORD": unquote(_u.password or ""),
+            "HOST": _u.hostname,
+            "PORT": str(_u.port or 5432),
+            "CONN_MAX_AGE": 0,
+            "ATOMIC_REQUESTS": True,
+            "DISABLE_SERVER_SIDE_CURSORS": True,
+            "OPTIONS": {"sslmode": "require", "prepare_threshold": None},
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": env("POSTGRES_DB", "crm"),
+            "USER": env("POSTGRES_USER", "crm"),
+            "PASSWORD": env("POSTGRES_PASSWORD", required=True),
+            "HOST": env("POSTGRES_HOST", "db"),
+            "PORT": env("POSTGRES_PORT", "5432"),
+            "CONN_MAX_AGE": 60,
+            "ATOMIC_REQUESTS": True,
+        }
+    }
 
 AUTH_USER_MODEL = "core.User"
 

@@ -69,6 +69,10 @@ git add -A && git commit -m "Этап 1: каркас, модели, демо-д
   Выполните `git add --renormalize . && git checkout -- backend/entrypoint.sh`.
 - **Любая другая ошибка** — пришлите в чат вывод `docker compose logs backend` (без паролей).
 
+## Демо в интернете
+
+Пошагово: `DEPLOY_VERCEL.md` (GitHub + Supabase + Vercel, только демо-данные).
+
 ## Открыть с телефона
 
 1. Телефон и компьютер в одной сети (общий Wi-Fi или раздача с одного из них).

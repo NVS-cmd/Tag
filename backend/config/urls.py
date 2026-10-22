@@ -14,6 +14,7 @@ urlpatterns = [
     path("sw.js", views.service_worker),
     path("manifest.webmanifest", views.manifest),
     path("admin/", admin.site.urls),
+    path("setup/", views.cloud_setup),
     path("api/health/", health),
     path("api/me/", api.me),
     path("api/login/", api.login_view),
